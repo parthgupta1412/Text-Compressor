@@ -1,5 +1,5 @@
 // main.c
-// Pipeline: read test.txt -> BWT -> MTF -> RLE -> Huffman (output.bin)
+// Pipeline: read <user file> -> BWT -> MTF -> RLE -> Huffman (output.bin)
 // Produces output.bin (Huffman payload) and output.bin.meta (primary index +
 // original length)
 
@@ -10,32 +10,37 @@
 
 /* Prototypes for functions implemented in your uploaded files */
 char* bwt_encode(const char* input, int* original_index);  // from main_bwt.c
-// Use the file-based Huffman compressor from main_huffman.c
 void compress_huffman_s(const char* input_file,
-                        const char* output_file);  // from main_huffman.c
+                        const char* output_file);          // from main_huffman.c
 size_t compress_rle_buffer(const unsigned char* input,
                            size_t input_len,
                            unsigned char* output,
                            size_t output_capacity);
 
-/* RLE (count,value) buffer-based compressor (safe, splits runs >255).
-   Format: [count][value][count][value]...
-   Returns number of bytes written to output, 0 on error.
-*/
-
-/* MTF encode:
-   input: null-terminated string (BWT output)
-   output: allocated buffer of unsigned char (values 0..255). Caller must free.
-   returns output length via out_len pointer.
-*/
+/* MTF encode (you must implement this somewhere, e.g. mtf.c) */
+unsigned char* mtf_encode(const unsigned char* input,
+                          size_t input_len,
+                          size_t* out_len);
 
 int main(void) {
-  const char* input_path = "test.txt";
+  char input_path[512];
   const char* intermediate_rle = "intermediate.rle";
   const char* output_bin = "output.bin";
   const char* meta_file = "output.bin.meta";
 
-  // --- Read entire test.txt into buffer ---
+  // --- Ask user for input file path ---
+  printf("Enter input file path: ");
+  if (!fgets(input_path, sizeof(input_path), stdin)) {
+    fprintf(stderr, "Error: failed to read input path\n");
+    return 1;
+  }
+  // remove trailing newline (if any)
+  size_t ip_len = strlen(input_path);
+  if (ip_len > 0 && (input_path[ip_len - 1] == '\n' || input_path[ip_len - 1] == '\r')) {
+    input_path[ip_len - 1] = '\0';
+  }
+
+  // --- Read entire file into buffer ---
   FILE* f = fopen(input_path, "rb");
   if (!f) {
     fprintf(stderr, "Error: cannot open %s\n", input_path);
@@ -73,7 +78,7 @@ int main(void) {
   // --- MTF ---
   size_t mtf_len = 0;
   unsigned char* mtf_out =
-     mtf_encode((unsigned char*)bwt_out, bwt_len, &mtf_len);
+      mtf_encode((const unsigned char*)bwt_out, bwt_len, &mtf_len);
   if (!mtf_out) {
     fprintf(stderr, "MTF failed\n");
     free(inbuf);
@@ -123,14 +128,11 @@ int main(void) {
   fclose(rfile);
 
   // --- Huffman compress the intermediate file into output.bin ---
-  compress_huffman_s(
-      intermediate_rle,
-      output_bin);  // writes output_bin (from your main_huffman.c)
+  compress_huffman_s(intermediate_rle, output_bin);
 
   // --- write metadata (primary index and original length) ---
   FILE* meta = fopen(meta_file, "wb");
   if (meta) {
-    // store as 32-bit signed int index, 32-bit unsigned original length
     int32_t idx = (int32_t)primary_index;
     uint32_t orig_len = (uint32_t)read;
     fwrite(&idx, sizeof(idx), 1, meta);
@@ -141,6 +143,7 @@ int main(void) {
   }
 
   printf("Pipeline complete.\n");
+  printf("Input file : %s\n", input_path);
   printf("Input bytes : %zu\n", (size_t)read);
   printf("BWT length  : %zu (primary index %d)\n", bwt_len, primary_index);
   printf("MTF length  : %zu\n", mtf_len);
